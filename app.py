@@ -14,7 +14,7 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from datetime import datetime
 import streamlit as st
-
+pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 # --- Enhanced State with Tracking ---
 class AppState(TypedDict):
     jd_text: str
