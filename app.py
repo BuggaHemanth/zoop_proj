@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import google.generativeai as genai
 from dotenv import load_dotenv
 from datetime import datetime
+import streamlit as st
 
 # --- Enhanced State with Tracking ---
 class AppState(TypedDict):
@@ -47,7 +48,7 @@ def extract_text_from_pdf(file_content: bytes) -> str:
             text += page.extract_text() + "\n"
         return text
     except Exception as e:
-        print(f"Error extracting PDF: {e}")
+        st.error(f"Error extracting PDF: {e}")
         return ""
 
 def extract_text_from_docx(file_content: bytes) -> str:
@@ -59,7 +60,7 @@ def extract_text_from_docx(file_content: bytes) -> str:
             text += paragraph.text + "\n"
         return text
     except Exception as e:
-        print(f"Error extracting DOCX: {e}")
+        st.error(f"Error extracting DOCX: {e}")
         return ""
 
 def extract_text_from_image(file_content: bytes) -> str:
@@ -69,7 +70,7 @@ def extract_text_from_image(file_content: bytes) -> str:
         text = pytesseract.image_to_string(image)
         return text
     except Exception as e:
-        print(f"Error extracting from image: {e}")
+        st.error(f"Error extracting from image: {e}")
         return ""
 
 def extract_text(file_input, file_extension: str = None) -> str:
@@ -91,10 +92,10 @@ def extract_text(file_input, file_extension: str = None) -> str:
                     text = ' '.join(chunk for chunk in chunks if chunk)
                     return text
                 else:
-                    print(f"Failed to fetch URL {file_input}: Status code {response.status_code}")
+                    st.error(f"Failed to fetch URL {file_input}: Status code {response.status_code}")
                     return ""
             except Exception as e:
-                print(f"Error fetching URL {file_input}: {e}")
+                st.error(f"Error fetching URL {file_input}: {e}")
                 return ""
         # Case 2: Input is a local file path
         else:
@@ -104,10 +105,10 @@ def extract_text(file_input, file_extension: str = None) -> str:
                 file_extension = os.path.splitext(file_input)[1].lower()
                 return extract_text(file_content, file_extension)
             except FileNotFoundError:
-                print(f"Error: File not found at path: {file_input}")
+                st.error(f"Error: File not found at path: {file_input}")
                 return ""
             except Exception as e:
-                print(f"An error occurred while reading file {file_input}: {e}")
+                st.error(f"An error occurred while reading file {file_input}: {e}")
                 return ""
     
     # Case 3: Input is file content (bytes)
@@ -125,17 +126,24 @@ def extract_text(file_input, file_extension: str = None) -> str:
     elif file_extension == '.txt':
         return file_input.decode('utf-8', errors='ignore')
     else:
-        print(f"Unsupported file extension: {file_extension}")
+        st.error(f"Unsupported file extension: {file_extension}")
         return ""
 
 def setup_gemini():
     load_dotenv()
     api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        # Try to get from Streamlit secrets
+        try:
+            api_key = st.secrets["GOOGLE_API_KEY"]
+        except:
+            pass
+    
     if api_key:
         genai.configure(api_key=api_key)
         return genai.GenerativeModel('gemini-1.5-flash')
     else:
-        print("Warning: GOOGLE_API_KEY not found in environment variables")
+        st.warning("Warning: GOOGLE_API_KEY not found in environment variables or Streamlit secrets")
         return None
 
 def get_file_type_route(filename: str) -> str:
@@ -178,8 +186,6 @@ def initialize_state(state: AppState) -> AppState:
     }
     return state
 
-
-
 # Process JD once at the beginning
 def process_jd_complete(state: AppState) -> AppState:
     """Extract AND clean JD text in one step (done once for all resumes)"""
@@ -190,13 +196,13 @@ def process_jd_complete(state: AppState) -> AppState:
             state['jd_text'] = jd_text
             state['processing_status']['jd_extracted'] = True
             state['extraction_stats']['total_characters_extracted'] += len(jd_text)
-            print(f"JD extracted successfully: {len(jd_text)} characters")
+            st.success(f"JD extracted successfully: {len(jd_text)} characters")
         except Exception as e:
-            print(f"Error extracting JD: {e}")
+            st.error(f"Error extracting JD: {e}")
             state['jd_text'] = ""
             state['processing_status']['jd_extracted'] = False
     else:
-        print("Warning: 'jd_input' missing from state")
+        st.warning("Warning: 'jd_input' missing from state")
         state['jd_text'] = ""
         state['processing_status']['jd_extracted'] = False
     
@@ -211,7 +217,7 @@ def process_jd_complete(state: AppState) -> AppState:
     if not model:
         state['cleaned_jd'] = state['jd_text']
         state['processing_status']['jd_cleaned'] = False
-        print("Warning: No Gemini API - using raw JD text")
+        st.warning("Warning: No Gemini API - using raw JD text")
         return state
     
     jd_prompt = f"""Extract job requirements, qualifications, and responsibilities from this job description. 
@@ -223,9 +229,9 @@ def process_jd_complete(state: AppState) -> AppState:
         jd_response = model.generate_content(jd_prompt)
         state['cleaned_jd'] = jd_response.text
         state['processing_status']['jd_cleaned'] = True
-        print("JD cleaned successfully")
+        st.success("JD cleaned successfully")
     except Exception as e:
-        print(f"Error cleaning JD with Gemini: {e}")
+        st.error(f"Error cleaning JD with Gemini: {e}")
         state['cleaned_jd'] = state['jd_text']
         state['processing_status']['jd_cleaned'] = False
     
@@ -250,7 +256,7 @@ def process_resumes_parallel(state: AppState) -> AppState:
             
             # FEATURE 1: Route based on file type
             route = get_file_type_route(filename)
-            print(f"Processing {filename} via {route}")
+            st.info(f"Processing {filename} via {route}")
             
             # EXTRACT text first
             text = extract_text(file_content, file_extension)
@@ -262,7 +268,7 @@ def process_resumes_parallel(state: AppState) -> AppState:
             else:
                 extraction_status = 'failed'
                 confidence = 0
-                print(f"Warning: Low quality extraction for {filename}")
+                st.warning(f"Warning: Low quality extraction for {filename}")
             
             # CLEAN text immediately if extraction succeeded
             if extraction_status == 'success' and model:
@@ -276,7 +282,7 @@ def process_resumes_parallel(state: AppState) -> AppState:
                     cleaned_text = resume_response.text
                     cleaning_status = 'success'
                 except Exception as e:
-                    print(f"Error cleaning resume '{filename}' with Gemini: {e}")
+                    st.error(f"Error cleaning resume '{filename}' with Gemini: {e}")
                     cleaned_text = text
                     cleaning_status = 'failed'
             else:
@@ -304,7 +310,7 @@ def process_resumes_parallel(state: AppState) -> AppState:
             
             state['extraction_stats']['total_characters_extracted'] += len(text)
         else:
-            print(f"Warning: Invalid resume entry: {resume}")
+            st.warning(f"Warning: Invalid resume entry: {resume}")
             failed_count += 1
     
     state['cleaned_resumes'] = processed_resumes
@@ -313,8 +319,8 @@ def process_resumes_parallel(state: AppState) -> AppState:
     state['extraction_stats']['successful_extractions'] = successful_count
     state['extraction_stats']['failed_extractions'] = failed_count
     
-    print(f"Resume processing complete: {successful_count} success, {failed_count} failed")
-    print(f"All resumes extracted and cleaned in parallel batch")
+    st.success(f"Resume processing complete: {successful_count} success, {failed_count} failed")
+    st.info("All resumes extracted and cleaned in parallel batch")
     return state
 
 def calculate_scores_enhanced(state: AppState) -> AppState:
@@ -324,7 +330,7 @@ def calculate_scores_enhanced(state: AppState) -> AppState:
     model = setup_gemini()
     if not model:
         # Fallback to simple keyword matching
-        print("Using fallback keyword scoring")
+        st.info("Using fallback keyword scoring")
         scores = []
         for resume in state['cleaned_resumes']:
             # Simple keyword overlap score
@@ -383,7 +389,7 @@ def calculate_scores_enhanced(state: AppState) -> AppState:
                 score = max(0, min(100, score))
                 method = 'ai_scoring'
             else:
-                print(f"No number in AI response for {resume['filename']}: '{score_text}'")
+                st.warning(f"No number in AI response for {resume['filename']}: '{score_text}'")
                 # Retry with simpler prompt
                 simple_prompt = f"Rate similarity 0-100: JD: {state['cleaned_jd'][:500]} Resume: {resume['cleaned_text'][:500]}"
                 retry_response = model.generate_content(simple_prompt)
@@ -396,7 +402,7 @@ def calculate_scores_enhanced(state: AppState) -> AppState:
                     method = 'ai_failed'
                     
         except Exception as e:
-            print(f"Error scoring {resume['filename']}: {e}")
+            st.error(f"Error scoring {resume['filename']}: {e}")
             score = 0
             method = 'error'
         
@@ -411,7 +417,7 @@ def calculate_scores_enhanced(state: AppState) -> AppState:
     
     state['scores'] = scores
     state['processing_status']['scores_calculated'] = True
-    print(f"Scoring complete. Methods used: {set(s['method'] for s in scores)}")
+    st.success(f"Scoring complete. Methods used: {set(s['method'] for s in scores)}")
     return state
 
 def select_top_resumes(state: AppState) -> AppState:
@@ -440,25 +446,25 @@ def select_top_resumes(state: AppState) -> AppState:
         'end_time': datetime.now().isoformat()
     }
     
-    print(f"Selected top {len(top_resumes)} resumes. Average score: {state['final_stats']['average_score']:.1f}")
+    st.success(f"Selected top {len(top_resumes)} resumes. Average score: {state['final_stats']['average_score']:.1f}")
     return state
 
 # FEATURE 1: Conditional routing function
 def route_after_jd_processing(state: AppState) -> str:
     """Route based on JD processing success"""
     if not state['processing_status']['jd_extracted']:
-        print("JD extraction failed - routing to error handling")
+        st.error("JD extraction failed - routing to error handling")
         return "handle_jd_error"
     
     if not state['processing_status']['jd_cleaned']:
-        print("JD cleaning failed - but proceeding with raw JD text")
+        st.warning("JD cleaning failed - but proceeding with raw JD text")
         # Still proceed since we have raw JD text
     
     return "proceed_to_resumes"
 
 def handle_extraction_errors(state: AppState) -> AppState:
     """Handle cases where JD extraction fails"""
-    print("Handling JD extraction errors...")
+    st.error("Handling JD extraction errors...")
     
     if not state['processing_status']['jd_extracted']:
         state['jd_text'] = "JD extraction failed"
@@ -466,7 +472,7 @@ def handle_extraction_errors(state: AppState) -> AppState:
         # Set empty cleaned_resumes to prevent scoring
         state['cleaned_resumes'] = []
     
-    print("Cannot proceed with resume matching due to JD failure")
+    st.error("Cannot proceed with resume matching due to JD failure")
     return state
 
 # Create the enhanced workflow
@@ -507,31 +513,7 @@ def create_enhanced_workflow():
     
     return workflow.compile()
 
-
-def run_workflow(jd_input, resume_files_data, top_n=5):
-    """
-    Run the enhanced resume matcher workflow
-    
-    Args:
-        jd_input: URL string or file path for job description
-        resume_files_data: List of resume data dictionaries
-        top_n: Number of top resumes to return
-    
-    Returns:
-        final_state: Complete workflow results
-    """
-    initial_state = {
-        'jd_input': jd_input,
-        'resumes': resume_files_data,
-        'top_n': top_n
-    }
-
-
-import streamlit as st
-import os
-from datetime import datetime
-
-
+# Streamlit App
 st.set_page_config(
     page_title="Resume Matcher", 
     page_icon="📄", 
@@ -546,6 +528,12 @@ def main():
     st.sidebar.header("⚙️ Settings")
     top_n = st.sidebar.slider("Number of top resumes to show", 1, 10, 3)
     
+    # API Key setup
+    st.sidebar.header("🔑 API Configuration")
+    api_key = st.sidebar.text_input("Google API Key (optional)", type="password", help="Enter your Google Gemini API key for AI scoring")
+    if api_key:
+        os.environ["GOOGLE_API_KEY"] = api_key
+    
     # Main interface
     col1, col2 = st.columns([1, 1])
     
@@ -557,7 +545,7 @@ def main():
         if jd_option == "Upload File":
             jd_file = st.file_uploader(
                 "Upload Job Description", 
-                type=['pdf', 'docx', 'txt'],
+                type=['pdf', 'docx', 'txt','png','jpeg','jpg'],
                 key="jd_file"
             )
             if jd_file:
@@ -612,12 +600,6 @@ def main():
             temp_files = []  # Keep track of temp files for cleanup
             
             for file in resume_files:
-                # Save each resume temporarily
-                temp_path = f"temp_resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.name}"
-                with open(temp_path, "wb") as f:
-                    f.write(file.getbuffer())
-                temp_files.append(temp_path)
-                
                 resumes_list.append({
                     'filename': file.name,
                     'content': file.getbuffer().tobytes(),
@@ -635,7 +617,7 @@ def main():
             status_text.text("🤖 Processing with AI...")
             progress_bar.progress(50)
             
-            # Import and run your LangGraph workflow
+            # Create and run the workflow
             app = create_enhanced_workflow()
             final_state = app.invoke(initial_state)
             
@@ -708,11 +690,8 @@ def main():
             
             # Cleanup temporary files
             try:
-                if jd_option == "Upload File" and os.path.exists(jd_input):
+                if jd_option == "Upload File" and jd_input and os.path.exists(jd_input):
                     os.remove(jd_input)
-                for temp_file in temp_files:
-                    if os.path.exists(temp_file):
-                        os.remove(temp_file)
             except:
                 pass  # Ignore cleanup errors
                 
@@ -722,6 +701,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-    app = create_enhanced_workflow()
-    return app.invoke(initial_state)
