@@ -525,6 +525,203 @@ def run_workflow(jd_input, resume_files_data, top_n=5):
         'resumes': resume_files_data,
         'top_n': top_n
     }
+
+
+import streamlit as st
+import os
+from datetime import datetime
+
+
+st.set_page_config(
+    page_title="Resume Matcher", 
+    page_icon="📄", 
+    layout="wide"
+)
+
+def main():
+    st.title("🎯 AI Resume Matcher")
+    st.markdown("Upload a job description and resumes to find the best matches!")
+    
+    # Sidebar for configuration
+    st.sidebar.header("⚙️ Settings")
+    top_n = st.sidebar.slider("Number of top resumes to show", 1, 10, 3)
+    
+    # Main interface
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.header("📋 Job Description")
+        jd_option = st.radio("Choose input method:", ["Upload File", "Enter URL"])
+        
+        jd_input = None
+        if jd_option == "Upload File":
+            jd_file = st.file_uploader(
+                "Upload Job Description", 
+                type=['pdf', 'docx', 'txt'],
+                key="jd_file"
+            )
+            if jd_file:
+                # Save uploaded file temporarily
+                temp_jd_path = f"temp_jd_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{jd_file.name.split('.')[-1]}"
+                with open(temp_jd_path, "wb") as f:
+                    f.write(jd_file.getbuffer())
+                jd_input = temp_jd_path
+                st.success(f"✅ Job description uploaded: {jd_file.name}")
+        else:
+            jd_url = st.text_input("Enter Job Description URL:", placeholder="https://example.com/job-posting")
+            if jd_url:
+                jd_input = jd_url
+                st.success(f"✅ URL entered: {jd_url}")
+    
+    with col2:
+        st.header("📄 Resumes")
+        resume_files = st.file_uploader(
+            "Upload Resumes",
+            type=['pdf', 'docx', 'txt'],
+            accept_multiple_files=True,
+            key="resume_files"
+        )
+        
+        if resume_files:
+            st.success(f"✅ {len(resume_files)} resume(s) uploaded")
+            for file in resume_files:
+                st.write(f"• {file.name}")
+    
+    # Process button
+    st.markdown("---")
+    
+    if st.button("🚀 Start Matching", type="primary", use_container_width=True):
+        if not jd_input:
+            st.error("❌ Please provide a job description!")
+            return
+        
+        if not resume_files:
+            st.error("❌ Please upload at least one resume!")
+            return
+        
+        # Show progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            # Prepare resume data
+            status_text.text("📂 Preparing files...")
+            progress_bar.progress(20)
+            
+            resumes_list = []
+            temp_files = []  # Keep track of temp files for cleanup
+            
+            for file in resume_files:
+                # Save each resume temporarily
+                temp_path = f"temp_resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.name}"
+                with open(temp_path, "wb") as f:
+                    f.write(file.getbuffer())
+                temp_files.append(temp_path)
+                
+                resumes_list.append({
+                    'filename': file.name,
+                    'content': file.getbuffer().tobytes(),
+                    'extension': os.path.splitext(file.name)[1]
+                })
+            
+            # Prepare initial state
+            initial_state = {
+                'jd_input': jd_input,
+                'resumes': resumes_list,
+                'top_n': top_n
+            }
+            
+            # Run the workflow
+            status_text.text("🤖 Processing with AI...")
+            progress_bar.progress(50)
+            
+            # Import and run your LangGraph workflow
+            app = create_enhanced_workflow()
+            final_state = app.invoke(initial_state)
+            
+            progress_bar.progress(100)
+            status_text.text("✅ Processing complete!")
+            
+            # Display results
+            st.markdown("---")
+            st.header("📊 Results")
+            
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                total_processed = len(final_state.get('scores', []))
+                st.metric("Total Resumes", total_processed)
+            
+            with col2:
+                successful = final_state.get('extraction_stats', {}).get('successful_extractions', 0)
+                st.metric("Successfully Processed", successful)
+            
+            with col3:
+                scores = [s.get('score', 0) for s in final_state.get('scores', [])]
+                avg_score = sum(scores) / len(scores) if scores else 0
+                st.metric("Average Score", f"{avg_score:.1f}")
+            
+            with col4:
+                max_score = max(scores) if scores else 0
+                st.metric("Highest Score", f"{max_score}")
+            
+            # Top resumes table
+            st.subheader("🏆 Top Matching Resumes")
+            
+            if final_state.get('top_resumes'):
+                for i, resume in enumerate(final_state['top_resumes']):
+                    with st.container():
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        
+                        with col1:
+                            st.markdown(f"**{i+1}. {resume.get('filename', 'Unknown')}**")
+                            st.caption(f"Method: {resume.get('method', 'unknown')} | Status: {resume.get('extraction_status', 'unknown')}")
+                        
+                        with col2:
+                            score = resume.get('score', 0)
+                            if score >= 70:
+                                st.success(f"🎯 {score}/100")
+                            elif score >= 50:
+                                st.warning(f"⚠️ {score}/100")
+                            else:
+                                st.error(f"❌ {score}/100")
+                        
+                        with col3:
+                            confidence = resume.get('confidence', 0)
+                            st.info(f"📈 {confidence:.1f}%")
+                        
+                        st.markdown("---")
+            else:
+                st.warning("No matching resumes found.")
+            
+            # Detailed scores (expandable)
+            with st.expander("📋 View All Scores"):
+                for score in final_state.get('scores', []):
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    with col1:
+                        st.write(score.get('filename', 'Unknown'))
+                    with col2:
+                        st.write(f"{score.get('score', 0)}/100")
+                    with col3:
+                        st.write(score.get('method', 'unknown'))
+            
+            # Cleanup temporary files
+            try:
+                if jd_option == "Upload File" and os.path.exists(jd_input):
+                    os.remove(jd_input)
+                for temp_file in temp_files:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+            except:
+                pass  # Ignore cleanup errors
+                
+        except Exception as e:
+            st.error(f"❌ An error occurred: {str(e)}")
+            st.exception(e)
+
+if __name__ == "__main__":
+    main()
     
     app = create_enhanced_workflow()
     return app.invoke(initial_state)
