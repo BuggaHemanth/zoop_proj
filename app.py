@@ -507,93 +507,24 @@ def create_enhanced_workflow():
     
     return workflow.compile()
 
-# Usage example with your data
-def run_enhanced_matcher():
-    # Your original configuration
-    jd_path = 'https://jobs.thecignagroup.com/us/en/job/25004987/Infrastructure-Engineering-Advisor'
-    resume_paths = [
-        'C:/Users/USER/Documents/Resumes/New/Hemanth_Sr_DS_Resume.pdf',
-        'C:/Users/USER/Downloads/Prashanth_resume.pdf'
-    ]
+
+def run_workflow(jd_input, resume_files_data, top_n=5):
+    """
+    Run the enhanced resume matcher workflow
     
-    # Prepare resume data
-    resumes_list = []
-    for path in resume_paths:
-        try:
-            with open(path, 'rb') as f:
-                file_content = f.read()
-            resumes_list.append({
-                'filename': os.path.basename(path),
-                'content': file_content,
-                'extension': os.path.splitext(path)[1]
-            })
-        except FileNotFoundError:
-            print(f"Warning: File not found: {path}")
+    Args:
+        jd_input: URL string or file path for job description
+        resume_files_data: List of resume data dictionaries
+        top_n: Number of top resumes to return
     
-    # Initial state
+    Returns:
+        final_state: Complete workflow results
+    """
     initial_state = {
-        'jd_input': jd_path,
-        'resumes': resumes_list,
-        'top_n': 2
+        'jd_input': jd_input,
+        'resumes': resume_files_data,
+        'top_n': top_n
     }
     
-    # Create and run workflow
     app = create_enhanced_workflow()
-    print("=== Starting Enhanced Resume Matching ===")
-    final_state = app.invoke(initial_state)
-    
-    # Display results with enhanced information
-    print("\n=== PROCESSING SUMMARY ===")
-    if 'final_stats' in final_state:
-        print(f"Total resumes processed: {final_state['final_stats']['total_processed']}")
-        print(f"Successful extractions: {final_state['final_stats']['successful_extractions']}")
-        print(f"Average score: {final_state['final_stats']['average_score']:.1f}")
-        print(f"Highest score: {final_state['final_stats']['highest_score']}")
-    else:
-        # Fallback stats calculation
-        total_processed = len(final_state.get('scores', []))
-        successful_extractions = final_state.get('extraction_stats', {}).get('successful_extractions', 0)
-        scores = [s.get('score', 0) for s in final_state.get('scores', [])]
-        avg_score = sum(scores) / len(scores) if scores else 0
-        max_score = max(scores) if scores else 0
-        
-        print(f"Total resumes processed: {total_processed}")
-        print(f"Successful extractions: {successful_extractions}")
-        print(f"Average score: {avg_score:.1f}")
-        print(f"Highest score: {max_score}")
-    
-    print("\n=== TOP RESUMES ===")
-    for resume in final_state.get('top_resumes', []):
-        print(f"{resume.get('rank', '?')}. {resume.get('filename', 'Unknown')}")
-        print(f"   Score: {resume.get('score', 0)}/100")
-        print(f"   Method: {resume.get('method', 'unknown')}")
-        print(f"   Confidence: {resume.get('confidence', 0):.1f}")
-        print(f"   Status: {resume.get('extraction_status', 'unknown')}")
-        print()
-        
-    # Debug: Show all scores to help diagnose the 0.0 average
-    print("\n=== DEBUG: ALL SCORES ===")
-    for score in final_state.get('scores', []):
-        print(f"{score.get('filename', 'Unknown')}: {score.get('score', 0)} ({score.get('method', 'unknown')})")
-    
-    # Debug: Show AI responses if available
-    if final_state.get('scores'):
-        print("\n=== DEBUG: First resume details ===")
-        first_resume = final_state['scores'][0]
-        print(f"Filename: {first_resume.get('filename', 'Unknown')}")
-        print(f"Method: {first_resume.get('method', 'unknown')}")
-        print(f"Score: {first_resume.get('score', 0)}")
-        print(f"Extraction status: {first_resume.get('extraction_status', 'unknown')}")
-        if 'resume_text' in first_resume:
-            print(f"Resume text length: {len(first_resume['resume_text'])}")
-            print(f"Resume text preview: {first_resume['resume_text'][:200]}...")
-        
-        # Show cleaned JD for comparison
-        cleaned_jd = final_state.get('cleaned_jd', '')
-        print(f"\nCleaned JD length: {len(cleaned_jd)}")
-        print(f"Cleaned JD preview: {cleaned_jd[:200]}...")
-    
-    return final_state
-
-if __name__ == "__main__":
-    result = run_enhanced_matcher()
+    return app.invoke(initial_state)
