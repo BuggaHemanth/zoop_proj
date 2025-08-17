@@ -20,5 +20,7 @@ sentence-transformers
 langgraph
 gdown
 pytesseract
+tesseract
 opencv-python
+
 pinecone
